@@ -1,0 +1,35 @@
+{
+  "id": "ptr-ai-pilot",
+  "title": "PTR AI Pilot",
+  "description": "Lets Claude Code play chosen combatants in a PTR (system id 'ptu') world through a local bridge: reads the fight, moves tokens, uses moves and items through PTR's own roll pipeline, and ends its turns. Damage and effects on actors the pilot doesn't own are applied by the GM's client.",
+  "version": "0.1.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14"
+  },
+  "authors": [
+    {
+      "name": "HeadMaidTypeX-2"
+    }
+  ],
+  "esmodules": [
+    "scripts/ai-pilot.js"
+  ],
+  "relationships": {
+    "systems": [
+      {
+        "id": "ptu",
+        "type": "system",
+        "compatibility": {
+          "minimum": "4.4.3.57"
+        }
+      }
+    ]
+  },
+  "socket": true,
+  "url": "https://github.com/HeadMaidTypeX-2/ptr-ai-pilot",
+  "manifest": "https://github.com/HeadMaidTypeX-2/ptr-ai-pilot/releases/latest/download/module.json",
+  "download": "https://github.com/HeadMaidTypeX-2/ptr-ai-pilot/releases/latest/download/module.zip",
+  "readme": "https://github.com/HeadMaidTypeX-2/ptr-ai-pilot/blob/main/README.md",
+  "bugs": "https://github.com/HeadMaidTypeX-2/ptr-ai-pilot/issues"
+}
