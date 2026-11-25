@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+      - "V*"
 
 permissions:
   contents: write
@@ -17,7 +18,7 @@ jobs:
 
       - name: Stamp version + manifest/download URLs into module.json
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${GITHUB_REF_NAME#[vV]}"
           REPO="${{ github.repository }}"
           jq \
             --arg v   "$VERSION" \
