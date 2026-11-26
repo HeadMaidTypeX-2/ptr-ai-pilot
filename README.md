@@ -60,6 +60,14 @@ to the bridge. The other clients only take part as the GM relay (see below).
 
 Tokens can be given by token id, actor id or name.
 
+## Battle briefs
+
+Write how a piloted actor should fight (persona, goals, tactics, triggers, voice lines) in
+`briefs/<name>.md`, starting from [`briefs/_template.md`](briefs/_template.md). The pilot reads
+the matching brief before each turn and writes a fight log to `briefs/logs/` afterwards. Briefs
+and logs are git-ignored so boss tactics never reach the public repo. See
+[`briefs/README.md`](briefs/README.md).
+
 ## GM relay
 
 PTR has no way to forward a player's writes to the GM. Without one, a player can't apply damage

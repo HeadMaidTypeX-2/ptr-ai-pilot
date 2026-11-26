@@ -1,1 +1,5 @@
 bridge/.token
+# Battle briefs and fight logs are spoilers: keep them local (repo is public).
+briefs/*
+!briefs/README.md
+!briefs/_template.md
