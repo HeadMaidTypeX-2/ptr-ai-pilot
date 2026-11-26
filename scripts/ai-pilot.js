@@ -640,6 +640,13 @@ export const COMMANDS = {
     return { requested: text, ...(warning ? { warning } : {}) };
   },
 
+  /** Whisper the GM a note: house-rule triggers, rulings to make, anything the pilot can't apply. */
+  async gmNote({ text }) {
+    if (!String(text ?? "").trim()) throw new Error("Give `text`.");
+    await whisperGM(text);
+    return { whispered: text };
+  },
+
   /** Set (or clear, with []) this user's targets without using anything. */
   async target({ targets = [] }) {
     const tokens = targets.map(findToken);
