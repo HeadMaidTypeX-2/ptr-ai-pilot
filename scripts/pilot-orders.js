@@ -17,14 +17,28 @@
  *     hpBelow {percent, who} `who` (default: this token) drops below `percent` % HP
  *     allyFaints {who?}      an ally (same disposition), or `who`, faints
  *     enemySendsOut          a hostile Pokémon token appears on the scene
+ *     roundStart             a new combat round begins (Priority-style declarations; the GM
+ *                            adjudicates how PTR priority orders them)
  *   true interrupt, checked before the roll on the attacker's client:
  *     targeted {by?, category?, type?, move?}   this token is targeted by a move
  *
- * `do` is one pilot command (use, move, say, switch, sendOut, recall, target) with its args;
- * the strings "$trigger" and "$self" are replaced by the triggering and the ordering token ids,
- * and `token` defaults to "$self". Orders run with offTurn: true and all the command's checks.
- * `limit`: "once" (default) or "round". Orders are replaced at the start of that token's next
- * turn; the turn event lists what fired.
+ * `do` is one pilot command (use, move, say, struggle, switch, sendOut, recall, target) with its
+ * args; the strings "$trigger" and "$self" are replaced by the triggering and the ordering token
+ * ids, and `token` defaults to "$self". Orders run with offTurn: true and all the command's checks.
+ * `limit`: "once" (default) or "round". If several orders match one event they are tried in list
+ * order. An order whose action fails (out of range, unavailable…) is refunded. Orders are replaced
+ * at the start of that token's next turn; the turn event lists what fired.
+ *
+ * Action rules (PTR rulebook in the system packs, checked at 4.4.3.57), by `kind`:
+ *   "aoo"        Attack of Opportunity (maneuver-attack-of-opportunity.json): once per round,
+ *                not while Sleeping, Flinched or Paralyzed. It is a Struggle Attack, so the
+ *                natural `do` is `struggle` (whispered to the GM for now). Default kind of
+ *                enemyLeavesAdjacent orders.
+ *   "interrupt"  ("Action Types"): no per-round cap, but like Priority (Advanced, Limited) it is
+ *                only that action: before the combatant's turn it spends this round's Standard
+ *                Action; after it, the combatant gives up its turn next round. The turn event
+ *                reports which, and the GM is whispered on a forfeit. Default for other orders.
+ *   "free"       No cost (cite the feature, e.g. Quick Switch). `free: true` is the same.
  *
  * Secrecy: orders live only in the pilot's browser (memory + localStorage), never on actor
  * data, which every client receives. Interrupts work by asking: a client about to use a move on
@@ -33,7 +47,7 @@
 
 import {
   MODULE_ID, SOCKET, COMMANDS, findToken, requirePiloted, isPiloted, sceneTokens, cellOf,
-  distanceBetween, enabled, bridgeConnected, postEvent, registerTurnExtra, sleep, lower,
+  distanceBetween, enabled, bridgeConnected, postEvent, registerTurnExtra, sleep, lower, whisperGM,
 } from "./ai-pilot.js";
 
 const Q_INTERRUPT = "ptr-ai-pilot-interrupt?";
@@ -44,8 +58,11 @@ const ACK_WAIT_MS = 700;
 const DONE_WAIT_MS = 25_000;
 const ONLINE_TTL_MS = 3 * 60_000;
 
-const TRIGGERS = new Set(["enemyAdjacent", "enemyLeavesAdjacent", "enemyWithin", "hpBelow", "allyFaints", "enemySendsOut", "targeted"]);
-const DO_CMDS = new Set(["use", "move", "say", "switch", "sendOut", "recall", "target"]);
+const TRIGGERS = new Set(["roundStart", "enemyAdjacent", "enemyLeavesAdjacent", "enemyWithin", "hpBelow", "allyFaints", "enemySendsOut", "targeted"]);
+const DO_CMDS = new Set(["use", "move", "say", "struggle", "switch", "sendOut", "recall", "target"]);
+const KINDS = new Set(["aoo", "interrupt", "free"]);
+/** Conditions that forbid an Attack of Opportunity (PTR maneuver text; compendium slugs). */
+const AOO_BLOCKERS = ["sleep", "flinch", "flinched", "paralysis", "paralyzed"];
 
 /* ------------------------------------------------------------------ *
  *  Storage (pilot client)
@@ -53,14 +70,24 @@ const DO_CMDS = new Set(["use", "move", "say", "switch", "sendOut", "recall", "t
 
 /** tokenId -> { orders: [{id, when, do, limit, firedRound?}], fired: [] } */
 let book = new Map();
+/** tokenId -> { aooRound, forfeitRound, standardSpentRound }: survives order replacement. */
+let costs = new Map();
 const storeKey = () => `${MODULE_ID}.orders.${game.world.id}`;
 
 function save() {
-  try { localStorage.setItem(storeKey(), JSON.stringify([...book])); } catch {}
+  try { localStorage.setItem(storeKey(), JSON.stringify({ book: [...book], costs: [...costs] })); } catch {}
 }
 function load() {
-  try { book = new Map(JSON.parse(localStorage.getItem(storeKey()) ?? "[]")); } catch { book = new Map(); }
+  try {
+    const data = JSON.parse(localStorage.getItem(storeKey()) ?? "{}");
+    book = new Map(Array.isArray(data) ? data : data.book ?? []);
+    costs = new Map(data.costs ?? []);
+  } catch { book = new Map(); costs = new Map(); }
 }
+const costOf = (tokenId) => {
+  if (!costs.has(tokenId)) costs.set(tokenId, {});
+  return costs.get(tokenId);
+};
 
 const active = () => enabled() && bridgeConnected() && !!game.combat?.started;
 
@@ -70,14 +97,32 @@ function validate(order, i) {
   if (!DO_CMDS.has(order?.do?.cmd)) throw new Error(`Order ${i + 1}: do.cmd must be one of ${[...DO_CMDS].join(", ")}.`);
   if (type === "enemyWithin" && !(Number(order.when.range) > 0)) throw new Error(`Order ${i + 1}: enemyWithin needs a range.`);
   if (type === "hpBelow" && !(Number(order.when.percent) > 0)) throw new Error(`Order ${i + 1}: hpBelow needs a percent.`);
+  if (order.kind && !KINDS.has(order.kind)) throw new Error(`Order ${i + 1}: kind must be one of ${[...KINDS].join(", ")}.`);
+  const kind = order.free === true ? "free" : order.kind ?? (type === "enemyLeavesAdjacent" ? "aoo" : "interrupt");
   return {
     id: order.id ?? `o${i + 1}`,
     when: order.when,
     do: { cmd: order.do.cmd, args: order.do.args ?? {} },
     limit: order.limit === "round" ? "round" : "once",
+    kind,
     note: order.note ?? null,
   };
 }
+
+/** Why this order can't fire now (PTR action rules), or null. */
+function blockedBy(tokenId, order) {
+  const round = game.combat?.round ?? 0;
+  if (order.limit === "round" && order.firedRound === round) return "already fired this round";
+  if (order.kind !== "aoo") return null;
+  if (costOf(tokenId).aooRound === round) return "Attack of Opportunity already used this round";
+  const self = canvas.tokens?.get(tokenId);
+  const conds = (self?.actor?.conditions?.active ?? []).map((c) => c.slug);
+  const blocker = AOO_BLOCKERS.find((s) => conds.includes(s));
+  return blocker ? `can't make an Attack of Opportunity while ${blocker}` : null;
+}
+
+/** The ordering token's combatant in the current combat. */
+const combatantOf = (tokenId) => game.combat?.combatants?.find?.((c) => c.tokenId === tokenId) ?? null;
 
 /* ------------------------------------------------------------------ *
  *  Helpers
@@ -119,23 +164,48 @@ function fire(tokenId, order, trigger, reason) {
   const entry = book.get(tokenId);
   if (!entry) return null;
   const round = game.combat?.round ?? 0;
-  if (order.limit === "round" && order.firedRound === round) return null;
+  if (blockedBy(tokenId, order)) return null;
+  // Spend now (synchronously) so a second trigger in the same tick can't double-fire.
+  const cost = costOf(tokenId);
+  const prev = { firedRound: order.firedRound, aooRound: cost.aooRound };
   if (order.limit === "once") entry.orders = entry.orders.filter((o) => o !== order);
   else order.firedRound = round;
+  if (order.kind === "aoo") cost.aooRound = round;
   save();
+  const refund = () => {
+    if (order.limit === "once") entry.orders.push(order);
+    else order.firedRound = prev.firedRound;
+    if (order.kind === "aoo") cost.aooRound = prev.aooRound;
+  };
 
   const run = queue.then(async () => {
     const fn = COMMANDS[order.do.cmd];
     const args = substitute({ token: "$self", ...order.do.args }, tokenId, trigger?.id ?? null);
-    const record = { order: order.id, when: order.when.type, reason, trigger: trigger?.name ?? null, cmd: order.do.cmd, round };
+    const record = { order: order.id, kind: order.kind, when: order.when.type, reason, trigger: trigger?.name ?? null, cmd: order.do.cmd, round };
+    // Interrupt cost (PTR "Action Types"): read before acting, since acting may change it.
+    const acted = !!combatantOf(tokenId)?.hasActed;
     firing = true;
     try {
       const data = await fn({ ...args, offTurn: true });
       record.ok = true;
       record.result = data;
+      if (order.kind === "interrupt") {
+        const name = canvas.tokens.get(tokenId)?.name ?? "A piloted combatant";
+        if (acted) {
+          cost.forfeitRound = round + 1;
+          record.turnCost = "forfeits its turn next round";
+          whisperGM(`${name} used an Interrupt after acting this round, so it gives up its turn in round ${round + 1} (PTR, Action Types).`).catch(() => {});
+        } else {
+          cost.standardSpentRound = round;
+          record.turnCost = "spent this round's Standard Action (rest of its turn on its Initiative)";
+        }
+      }
     } catch (err) {
+      // Nothing happened (out of range, unavailable…): give the order and the reaction back.
       record.ok = false;
       record.error = String(err?.message ?? err);
+      record.refunded = true;
+      refund();
     } finally {
       firing = false;
     }
@@ -169,18 +239,22 @@ function onMoved(tokenDoc) {
   lastCell.set(mover.id, after);
   if (!active() || (before && before.col === after.col && before.row === after.row)) return;
 
-  eachOrder("enemyAdjacent", (self, order) => {
-    if (isEnemy(self, mover) && distanceBetween(self, mover) <= 1) fire(self.id, order, mover, `${mover.name} moved adjacent`);
-  });
-  eachOrder("enemyWithin", (self, order) => {
-    if (isEnemy(self, mover) && distanceBetween(self, mover) <= Number(order.when.range)) fire(self.id, order, mover, `${mover.name} moved within ${order.when.range} m`);
-  });
-  eachOrder("enemyLeavesAdjacent", (self, order) => {
-    if (!before || !isEnemy(self, mover)) return;
-    const selfCell = cellOf(self);
-    const wasAdjacent = chebyshev(before, selfCell) <= 1;
-    if (wasAdjacent && distanceBetween(self, mover) > 1) fire(self.id, order, mover, `${mover.name} moved away`);
-  });
+  // One pass in each token's own list order, so the order Claude wrote is the priority.
+  if (!active()) return;
+  for (const [tokenId, entry] of book) {
+    const self = canvas.tokens?.get(tokenId);
+    if (!self || self === mover || !isPiloted(self.actor) || !isEnemy(self, mover)) continue;
+    const dist = distanceBetween(self, mover);
+    const wasAdjacent = !!before && chebyshev(before, cellOf(self)) <= 1;
+    for (const order of [...entry.orders]) {
+      const w = order.when;
+      let reason = null;
+      if (w.type === "enemyAdjacent" && dist <= 1) reason = `${mover.name} moved adjacent`;
+      else if (w.type === "enemyWithin" && dist <= Number(w.range)) reason = `${mover.name} moved within ${w.range} m`;
+      else if (w.type === "enemyLeavesAdjacent" && wasAdjacent && dist > 1) reason = `${mover.name} moved away`;
+      if (reason) fire(self.id, order, mover, reason);
+    }
+  }
 }
 
 /** Tokens fainted at the last check, so allyFaints fires on the transition only. */
@@ -205,6 +279,10 @@ function onHealthChange() {
     const down = candidates.find((t) => newlyFainted.has(t.id));
     if (down) fire(self.id, order, down, `${down.name} fainted`);
   });
+}
+
+function onRoundStart() {
+  eachOrder("roundStart", (self, order) => fire(self.id, order, null, `round ${game.combat?.round} began`));
 }
 
 function onTokenCreated(tokenDoc) {
@@ -245,8 +323,7 @@ async function answerQuery(msg) {
     const entry = book.get(tokenId);
     const self = canvas.tokens?.get(tokenId);
     if (!entry || !self || !isPiloted(self.actor)) continue;
-    const order = entry.orders.find((o) => o.when.type === "targeted" && matchesTargeted(o, msg) &&
-      !(o.limit === "round" && o.firedRound === (game.combat?.round ?? 0)));
+    const order = entry.orders.find((o) => o.when.type === "targeted" && matchesTargeted(o, msg) && !blockedBy(tokenId, o));
     if (order) hits.push({ tokenId, order });
   }
   if (!hits.length) return;
@@ -353,12 +430,23 @@ COMMANDS.orders = async ({ token: ref, list }) => {
 };
 
 registerTurnExtra((combatant) => {
+  const out = {};
+  const round = game.combat?.round ?? 0;
+  const cost = costs.get(combatant.tokenId);
+  // PTR "Action Types": an Interrupt after acting gives up the next round's turn; one before
+  // the turn spends this round's Standard Action.
+  if (cost?.forfeitRound === round) {
+    out.forfeitTurn = "This combatant used an Interrupt after acting last round, so it gives up this turn (PTR, Action Types). End the turn.";
+  } else if (cost?.standardSpentRound === round) {
+    out.standardActionSpent = "An Interrupt already spent this round's Standard Action; only Shift/Swift/Free actions remain.";
+  }
   const entry = book.get(combatant.tokenId);
-  if (!entry) return {};
-  const report = { fired: entry.fired, expired: entry.orders.map((o) => ({ id: o.id, when: o.when.type })) };
-  book.delete(combatant.tokenId);
+  if (entry) {
+    out.orders = { fired: entry.fired, expired: entry.orders.map((o) => ({ id: o.id, kind: o.kind, when: o.when.type })) };
+    book.delete(combatant.tokenId);
+  }
   save();
-  return { orders: report };
+  return out;
 });
 
 /* ------------------------------------------------------------------ *
@@ -383,7 +471,10 @@ Hooks.once("ready", () => {
   Hooks.on("createItem", (item) => { if (item.type === "condition") setTimeout(onHealthChange, 200); });
   Hooks.on("createToken", onTokenCreated);
   Hooks.on("deleteToken", (doc) => lastCell.delete(doc.id));
-  Hooks.on("deleteCombat", () => { book.clear(); save(); });
+  Hooks.on("deleteCombat", () => { book.clear(); costs.clear(); save(); });
+  Hooks.on("updateCombat", (combat, changed) => {
+    if (combat === game.combat && "round" in changed) setTimeout(onRoundStart, 300);
+  });
   setInterval(announceOnline, 60_000);
   setTimeout(announceOnline, 3000);
 });

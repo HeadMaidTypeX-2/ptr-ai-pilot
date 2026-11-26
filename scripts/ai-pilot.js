@@ -450,6 +450,16 @@ export function hpLine(token) {
     : { name: token.name, hpPercent: h.max ? Math.round((h.value / h.max) * 100) : null, conditions: conditionSlugs(a) };
 }
 
+/** Whisper every GM a note from the pilot (things it can't resolve itself). */
+export async function whisperGM(text) {
+  const gms = game.users.filter((u) => u.isGM).map((u) => u.id);
+  return ChatMessage.create({
+    content: `<p><strong>AI pilot:</strong> ${foundry.utils.escapeHTML(String(text))}</p>`,
+    whisper: gms,
+    speaker: { alias: `AI pilot (${game.user.name})` },
+  });
+}
+
 async function setTargets(tokens) {
   const ids = tokens.map((t) => t.id);
   if (typeof canvas.tokens.setTargets === "function") canvas.tokens.setTargets(ids);
@@ -612,6 +622,22 @@ export const COMMANDS = {
       style: CONST.CHAT_MESSAGE_STYLES?.IC,
     });
     return { said: text };
+  },
+
+  /**
+   * Struggle Attack, for now resolved by the GM: whispers the GM who attacks whom and why
+   * (e.g. an Attack of Opportunity). PTR builds Struggle as runtime phantom items the pilot can't
+   * use yet (actor/base.js _prepareStruggles).
+   */
+  async struggle({ token: ref, target, reason = "", offTurn = false }) {
+    const token = findToken(ref);
+    requirePiloted(token);
+    const warning = turnCheck(token, offTurn);
+    const foe = target ? findToken(target) : null;
+    const distance = foe ? distanceBetween(token, foe) : null;
+    const text = `${token.name} makes a Struggle Attack${foe ? ` against ${foe.name} (${distance} m)` : ""}${reason ? ` (${reason})` : ""}. Please resolve it.`;
+    await whisperGM(text);
+    return { requested: text, ...(warning ? { warning } : {}) };
   },
 
   /** Set (or clear, with []) this user's targets without using anything. */

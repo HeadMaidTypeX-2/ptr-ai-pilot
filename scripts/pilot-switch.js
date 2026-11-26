@@ -10,10 +10,12 @@
  * else Pokémon whose flags.ptu.party.trainer is the trainer and that aren't boxed
  * (same order as PTR's Party screen, apps/party/sheet.js).
  *
- * Range and action cost are GM world settings. PTR keeps CORE's base switching rules (the PTR
- * wiki only adds features such as Quick Switch / Emergency Release), so the defaults (8 m,
- * Standard Action) are placeholders until the GM confirms them from the CORE book. The pilot
- * does not track action economy; the action cost is reported for Claude and the GM.
+ * Rules (PTR rulebook "Pokémon Switching", in the system packs at 4.4.3.57): recall needs the
+ * Pokémon within the Poké Ball's recall beam, 8 m (always in range in a League Battle, i.e. the
+ * ptu "leagueBattle" setting); no release range is stated. A full Switch is a Standard Action,
+ * Recall or Release alone a Shift Action each, switching out a Fainted Pokémon a Shift Action.
+ * Range and the cost text are GM world settings; the pilot reports the cost, it doesn't track
+ * action economy.
  *
  * Token/combatant creation and deletion always go through the GM's client (relay), which
  * re-checks party membership, ownership and range.
@@ -32,6 +34,7 @@ const S = {
   rollInitiative: "switch.rollInitiative",
 };
 const get = (k) => game.settings.get(MODULE_ID, S[k]);
+const leagueBattle = () => { try { return !!game.settings.get("ptu", "leagueBattle"); } catch { return false; } };
 
 /* ------------------------------------------------------------------ *
  *  Party
@@ -165,7 +168,7 @@ async function doRecall({ pokemon, force = false, offTurn = false }) {
   const tDoc = tokenOfActor(trainer);
   if (!tDoc?.object) throw new Error(`${trainer.name} is not on this scene, so ${token.name} can't be recalled.`);
   const warning = turnCheck(tDoc.object, offTurn);
-  const range = get("recallRange");
+  const range = leagueBattle() ? 0 : get("recallRange");
   const distance = distanceToCell(tDoc.object, cellOf(token));
   if (!force && range > 0 && distance > range) throw new Error(`${token.name} is ${distance} m from ${trainer.name}; recall range is ${range} m. Pass force: true to ignore.`);
   const at = cellOf(token);
@@ -216,18 +219,18 @@ Hooks.once("init", () => {
   const reg = (key, data) => game.settings.register(MODULE_ID, S[key], { scope: "world", config: true, restricted: true, ...data });
   reg("recallRange", {
     name: "AI pilot: recall range (m)",
-    hint: "Maximum distance from trainer to Pokémon for a recall. PTR keeps the CORE rule; set it from the CORE book. 0 = no limit.",
+    hint: "Maximum distance from trainer to Pokémon for a recall: the Poké Ball's recall beam, 8 m (PTR rulebook, Pokémon Switching). Ignored in League Battles (always in range). 0 = no limit.",
     type: Number, default: 8,
   });
   reg("releaseRange", {
     name: "AI pilot: release range (m)",
-    hint: "Maximum distance from trainer to the cell a Pokémon is sent out to. PTR keeps the CORE rule; set it from the CORE book. 0 = no limit.",
-    type: Number, default: 8,
+    hint: "Maximum distance from trainer to the cell a Pokémon is sent out to. The PTR rulebook states no release range, so the default is 0 = no limit; set one as a house rule.",
+    type: Number, default: 0,
   });
   reg("actionCost", {
     name: "AI pilot: switching action cost",
     hint: "Reported to the pilot after a recall/send out (it does not track actions). Features like Quick Switch override it in a battle brief.",
-    type: String, default: "Standard Action (CORE baseline, unverified)",
+    type: String, default: "Switch: Standard Action (Trainer or Pokémon). Recall or Release alone: Shift Action each. Fainted Pokémon: Shift Action. (PTR rulebook)",
   });
   reg("addToCombat", {
     name: "AI pilot: add sent-out Pokémon to combat",

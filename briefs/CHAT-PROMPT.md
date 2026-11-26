@@ -25,14 +25,21 @@ below. Keep it practical: the pilot follows instructions literally.
   - HP drops below N %;
   - an ally faints;
   - an enemy sends a Pokémon out;
+  - a new round begins (Priority-style; the GM adjudicates how PTR orders Priority);
   - **interrupts**: this token is targeted by a move, optionally filtered by attacker, category
     (Physical, Special or Status), type, or move name.
-  Y is one action: use a move, move, switch, send out, recall, or say a line.
+  Y is one action: use a move, move, switch, send out, recall, a Struggle Attack (the GM resolves
+  it), or say a line. Orders are tried in the order listed, under PTR's action rules:
+  - **Attack of Opportunity:** once per round, a Struggle Attack, not while Sleeping, Flinched or
+    Paralyzed.
+  - **Interrupt:** no cap, but it's only that action. Before the combatant's turn it spends that
+    round's Standard Action; after its turn, the combatant gives up its next turn.
+  - **Free:** no cost; cite the feature, e.g. Quick Switch.
 - **Say one in-character chat line.**
 - **End its turn.**
 
 **What it can't do (yet)**
-- **Use Struggle attacks.**
+- **Roll Struggle Attacks itself.** It asks the GM to resolve them by whisper.
 - **Track action economy.** It doesn't count Standard, Shift or Swift actions; the brief must say
   what a turn may contain, and features like Quick Switch must be named.
 - **React to anything outside the order triggers** above. Off-turn decisions beyond them come from
@@ -54,7 +61,8 @@ below. Keep it practical: the pilot follows instructions literally.
 - **Voice lines:** short, one per turn at most, with a few to choose from per situation.
 - **Standing orders:** for each piloted actor, list the orders it should leave at the end of each
   turn, written as "when <trigger>, do <action>", with the feature or rule that allows it (e.g.
-  "Emergency Release, 2 AP").
+  "Emergency Release, 2 AP"). List them most important first, and mark each as Attack of
+  Opportunity, Interrupt, or Free.
 - **Out of scope:** anything it can't do goes there, with what to do instead ("skip", "end turn",
   "say X").
 

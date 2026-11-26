@@ -62,6 +62,7 @@ to the bridge. The other clients only take part as the GM relay (see below).
 | `recall` | `pokemon`, `force?`, `offTurn?` | Removes the token and its combatant, if within recall range of its trainer. |
 | `switch` | `trainer`, `out`, `in` | Recall `out`, send `in` out to the same cell. |
 | `orders` | `token`, `list?` | Sets this token's standing orders (`[]` clears; no `list` shows them). |
+| `struggle` | `token`, `target?`, `reason?` | Whispers the GM to resolve a Struggle Attack (e.g. an Attack of Opportunity). The pilot can't use PTR's runtime Struggle items yet. |
 
 Tokens can be given by token id, actor id or name.
 
@@ -74,16 +75,34 @@ after re-checking party membership, ownership and range.
 The party is PTR's own: a `Party` folder inside the trainer's folder, else Pokémon whose
 `flags.ptu.party.trainer` is the trainer and that aren't boxed.
 
-PTR keeps the PTU CORE switching rules, so recall range, release range and action cost are GM
-world settings (defaults 8 m, 8 m, "Standard Action"). Set them from the CORE book. The pilot
-doesn't track action economy; it reports the cost.
+The rules come from the PTR rulebook that ships in the system (Pokémon Switching):
+- **Recall range** is the Poké Ball's recall beam, 8 m. It doesn't apply in League Battles
+  (PTR's `leagueBattle` setting).
+- **Release range** isn't stated in the rules, so the default is no limit.
+- **Action cost:** a full Switch is a Standard Action, Recall or Release alone a Shift Action each,
+  and switching out a Fainted Pokémon a Shift Action.
+
+All three are GM world settings. The pilot reports the action cost but doesn't track action
+economy.
 
 ## Standing orders (reactions and interrupts)
 
 Before ending a turn, the pilot can leave orders: **when** something happens, **do** one command
-(`use`, `move`, `say`, `switch`, `sendOut`, `recall`, `target`). In the order's
+(`use`, `move`, `say`, `struggle`, `switch`, `sendOut`, `recall`, `target`). In the order's
 arguments, `$trigger` stands for the triggering token and `$self` for the token that set it.
 `limit` is `"once"` (the default) or `"round"`.
+
+**Action rules** (PTR rulebook and maneuver items in the system packs). Each order has a `kind`:
+- **`aoo`** (Attack of Opportunity): **once per round**, and not while Sleeping, Flinched or
+  Paralyzed. It's a Struggle Attack, so its natural action is `struggle`. This is the default for
+  `enemyLeavesAdjacent` orders.
+- **`interrupt`**: **no per-round cap**, but it's only that one action. Before the combatant's
+  turn, it spends that round's Standard Action. After its turn, it gives up its turn next round;
+  the turn event says so and the GM gets a whisper. This is the default for every other order.
+- **`free`** (or `free: true`): no cost. Cite the feature that allows it, e.g. Quick Switch.
+
+If several orders match one event, they are tried **in list order**, so put the most important
+first. An order whose action fails (out of range, unavailable…) is refunded.
 
 | `when.type` | Fires |
 |---|---|
@@ -93,6 +112,7 @@ arguments, `$trigger` stands for the triggering token and `$self` for the token 
 | `hpBelow` `{percent, who?}` | The token, or `who`, is below `percent` % HP. |
 | `allyFaints` `{who?}` | An ally, or `who`, faints. |
 | `enemySendsOut` | A hostile Pokémon is sent out. |
+| `roundStart` | A new round begins, for Priority-style declarations. PTR's Priority and Interrupt ordering is the GM's call. |
 | `targeted` `{by?, category?, type?, move?}` | **Interrupt.** Before the roll, the attacker's client pauses for up to 25 s while the order runs. |
 
 Orders only take effect while combat is running and the bridge is connected. They are replaced
