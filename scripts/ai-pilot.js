@@ -438,10 +438,14 @@ async function runRelay({ kind, args, from }) {
         if (args.heal) {
           await actor.applyDamage({ damage: -amount, token: doc, effectiveness: 1, skipIWR: true, rollOptions: [] });
         } else if (args.type) {
-          // A typed effect, not an attack: no Defense (category "Status"), but Weakness /
-          // Resistance / Immunity of that type still apply.
+          // A typed effect, not an attack: no Defense (category "Status"). PTR applies the type
+          // chart through `effectiveness` (actor.iwr.getRealValue), not the resistance list,
+          // and turns an effectiveness of 0 into 1 (`realModifier || 1`), so immunity is
+          // handled here. Ability/rule-element IWR still applies through applyIWR.
+          const eff = Number(actor.iwr?.getRealValue?.(args.type) ?? 1);
+          if (eff === 0) return { name: doc.name, before, after: before, max: health.max, immune: true };
           const pseudo = { name: args.reason || `${args.type} damage`, system: { type: args.type, category: "Status" } };
-          await actor.applyDamage({ damage: amount, token: doc, item: pseudo, effectiveness: 1, rollOptions: [] });
+          await actor.applyDamage({ damage: amount, token: doc, item: pseudo, effectiveness: eff, rollOptions: [] });
         } else {
           await actor.applyDamage({ damage: amount, token: doc, effectiveness: -1, rollOptions: [] }); // flat
         }
@@ -511,11 +515,23 @@ async function capture(fn) {
     return orig[level].call(this, text, options);
   };
   n.warn = grab("warn"); n.error = grab("error"); n.info = grab("info");
+  // Safety net: a PTR roll dialog (CheckModifiersDialog, DamageModifiersDialog, CheckDialog…)
+  // that opens during a pilot command would block it until a human clicks. Confirm it.
+  const dialogHook = Hooks.on("renderApplication", (app, html) => {
+    if (!/ModifiersDialog|CheckDialog/.test(app?.constructor?.name ?? "")) return;
+    const root = html?.[0] ?? html;
+    setTimeout(() => {
+      const btn = root?.querySelector?.('button[type="submit"], button.roll, button[data-button="roll"], button');
+      notes.push({ level: "info", text: `Auto-confirmed ${app.constructor.name}` });
+      btn?.click();
+    }, 100);
+  });
   try {
     const result = await fn(messages);
     await sleep(400); // message hooks settle
     return { result, messages, notes };
   } finally {
+    Hooks.off("renderApplication", dialogHook);
     Hooks.off("createChatMessage", hookId);
     Object.assign(n, orig);
   }
@@ -626,7 +642,9 @@ export const COMMANDS = {
     token.control({ releaseOthers: true });
 
     // eventToRollParams: skipDialog = shiftKey ? !setting : setting  ->  always skip.
-    const event = { shiftKey: !game.settings.get("ptu", "skipRollDialog"), ctrlKey: false, metaKey: false, altKey: false, preventDefault() {}, stopPropagation() {} };
+    // A real MouseEvent: PTR forwards the event to the damage roll only if `instanceof Event`
+    // (check.js:314); a plain object became null there and the damage dialog appeared.
+    const event = new MouseEvent("click", { shiftKey: !game.settings.get("ptu", "skipRollDialog") });
     const { messages, notes } = await capture(async (messages) => {
       await item.use({ event, targets: targetTokens.length ? targetTokens : undefined });
       // Damaging move with autoRollDamage off: roll damage as the chat button would.
