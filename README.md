@@ -62,6 +62,7 @@ to the bridge. The other clients only take part as the GM relay (see below).
 | `recall` | `pokemon`, `force?`, `offTurn?` | Removes the token and its combatant, if within recall range of its trainer. |
 | `switch` | `trainer`, `out`, `in` | Recall `out`, send `in` out to the same cell. |
 | `orders` | `token`, `list?` | Sets this token's standing orders (`[]` clears; no `list` shows them). |
+| `save` | `token`, `dc?`, `label?` | Rolls a PTR Save Check (the sheet's Save button) and reports pass/fail against `dc` and the actor's tick size. |
 | `gmNote` | `text` | Whispers the GM a note (house-rule triggers, rulings to make). |
 | `struggle` | `token`, `target?`, `reason?` | Whispers the GM to resolve a Struggle Attack (e.g. an Attack of Opportunity). The pilot can't use PTR's runtime Struggle items yet. |
 

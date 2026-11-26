@@ -36,6 +36,7 @@ const PTR = {
   damage: "/systems/ptu/src/module/message/damage.js",
   attack: "/systems/ptu/src/module/message/attack.js",
   pipeline: "/systems/ptu/src/module/rules/pipeline.js",
+  statistic: "/systems/ptu/src/module/system/statistic/index.js",
 };
 
 // Core Movement Action -> PTR capability (same map as ptr-capability-ruler.js).
@@ -638,6 +639,34 @@ export const COMMANDS = {
     const text = `${token.name} makes a Struggle Attack${foe ? ` against ${foe.name} (${distance} m)` : ""}${reason ? ` (${reason})` : ""}. Please resolve it.`;
     await whisperGM(text);
     return { requested: text, ...(warning ? { warning } : {}) };
+  },
+
+  /**
+   * Roll a Save Check exactly as the sheet's Save button does (PTR Statistic "save-check",
+   * with the actor's save modifiers), compare it to `dc`, and report the actor's tick
+   * (1/10 of total HP) for effects like the Thunderstorm's "lose 3 Ticks" on a failed DC 8 save.
+   * Rolls in chat; applying the consequence is up to the caller / GM.
+   */
+  async save({ token: ref, dc, label = "" }) {
+    const token = findToken(ref);
+    requirePiloted(token);
+    const actor = token.actor;
+    const { Statistic } = await import(PTR.statistic);
+    const statistic = new Statistic(actor, {
+      slug: "save-check",
+      label: game.i18n.format("PTU.SaveCheck", { name: token.name, save: label }),
+      check: { type: "save-check", domains: ["save-check"], modifiers: [] },
+      domains: [],
+    });
+    const roll = await statistic.roll({ skipDialog: true });
+    const total = roll?.total ?? null;
+    const target = Number(dc);
+    const out = { name: token.name, save: label || null, total, tick: actor.system?.health?.tick ?? null };
+    if (Number.isFinite(target)) {
+      out.dc = target;
+      out.success = total !== null && total >= target;
+    }
+    return out;
   },
 
   /** Whisper the GM a note: house-rule triggers, rulings to make, anything the pilot can't apply. */
