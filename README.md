@@ -30,7 +30,13 @@ to the bridge. The other clients only take part as the GM relay (see below).
    GM.
 3. On the PC running Claude Code, run `node bridge/pilot.mjs serve` (Node 18+, no installs). It
    prints a token, which is also saved in `bridge/.token`.
-4. In the pilot's Foundry tab, open *Configure Settings* for that browser, turn on **Connect AI
+   **If Foundry is served from another machine**, Chrome won't let that page call `127.0.0.1`
+   (Local Network Access). Bind to this PC's LAN address instead with
+   `PILOT_HOST=192.168.x.y node bridge/pilot.mjs serve`, and use the same `PILOT_HOST` for CLI
+   calls. Set the Foundry "AI pilot bridge address" to `http://192.168.x.y:47321`. Allow Node
+   through Windows Firewall on private networks if asked.
+4. Use a normal Chrome/Edge/Firefox tab. Embedded app browsers may block local-network requests
+   entirely. In the pilot's Foundry tab, open *Configure Settings* for that browser, turn on **Connect AI
    pilot bridge** and paste the token. A badge at the bottom-left shows the connection.
    Chrome may ask once to allow the page to reach the local network.
 
@@ -67,9 +73,14 @@ The world setting **Enable AI pilot** (GM only) switches everything off.
 
 ## Security
 
-The bridge listens on 127.0.0.1 only and requires the token on every request. Only the
+The bridge listens on 127.0.0.1 by default, or on the LAN address given in `PILOT_HOST`, which
+anyone on your network can reach. Either way, it requires the token on every request. Only the
 `/foundry/*` routes answer browser CORS requests. `bridge/.token` is git-ignored.
 
 ## Status
 
-**Not yet tested in play.**
+Tested in play on Foundry V14 with PTR 4.4.3.57. Working: turn wake-up, movement with the
+capability check, move use with no dialog, effects applied through the GM relay, in-character
+chat, and ending turns.
+
+Not supported yet: trainer actions (recall, send out, items from the bag).

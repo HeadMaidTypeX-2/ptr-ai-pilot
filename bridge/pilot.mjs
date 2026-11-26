@@ -11,7 +11,7 @@
  *   node bridge/pilot.mjs call <cmd> [json]  run a command in the Foundry tab, print the result
  *   node bridge/pilot.mjs token              print the token to paste into Foundry
  *
- * Listens on 127.0.0.1 only (port 47321, or PILOT_PORT). Every request needs the shared token
+ * Listens on 127.0.0.1 (or PILOT_HOST), port 47321 (or PILOT_PORT). Every request needs the shared token
  * in the `x-pilot-token` header: a random value kept in bridge/.token (git-ignored), so other
  * web pages in the browser can't drive it. No dependencies beyond Node 18+.
  */
@@ -25,7 +25,10 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(HERE, ".token");
 const PORT = Number(process.env.PILOT_PORT) || 47321;
-const HOST = "127.0.0.1";
+// 127.0.0.1 by default. Chrome's Local Network Access blocks a LAN page (Foundry served from
+// another machine) from calling loopback, so in that setup bind to this PC's LAN address with
+// PILOT_HOST=192.168.x.y and point the Foundry setting there. The token still guards every call.
+const HOST = process.env.PILOT_HOST || "127.0.0.1";
 const POLL_HOLD_MS = 25_000;      // Foundry long-poll hold
 const WAIT_HOLD_MS = 50_000;      // Claude long-poll hold (the CLI loops)
 const FOUNDRY_STALE_MS = 40_000;  // no poll for this long = disconnected

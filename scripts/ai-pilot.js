@@ -142,14 +142,14 @@ function speedFor(actor, action) {
   return Math.max(0, ...keys.map((k) => Number(caps[k])).filter(Number.isFinite));
 }
 
-/** First numeric range of a move ("Melee" = 1, "6, 1 Target" = 6, "Self"/"Burst" = 0). */
+/** First numeric range of a move ("Melee" = 1, "6" / "Range 6" = 6, "Self"/"Burst" = 0). */
 function moveRange(item) {
   const raw = String(item.system?.range ?? "");
   const parts = raw.split(",").map((s) => s.trim().toLowerCase());
   if (parts.some((p) => p.startsWith("self") || p.startsWith("burst") || p === "field")) return { reach: 0, raw };
   if (parts.some((p) => p.startsWith("melee"))) return { reach: 1, raw };
   for (const p of parts) {
-    const m = /^(\d+)/.exec(p);
+    const m = /^(?:range\s*)?(\d+)/.exec(p);
     if (m) return { reach: Number(m[1]), raw };
     const shape = /^(?:cone|line|close blast|ranged blast|blast)\s*(\d+)/.exec(p);
     if (shape) return { reach: Number(shape[1]), raw };
@@ -290,7 +290,7 @@ function actorDetail(token) {
     movementAction: token.document.movementAction ?? null,
     moves: (it.move ?? []).map((m) => moveSummary(m, token)),
     abilities: (it.ability ?? []).map((a) => ({ name: a.name, frequency: a.system?.frequency?.type, effect: stripHTML(a.system?.effect || a.system?.snippet, 300) })),
-    features: (it.feat ?? []).map((f) => ({ id: f.id, name: f.name, frequency: f.system?.frequency?.type, ...availability(f) })),
+    features: (it.feat ?? []).map((f) => ({ id: f.id, name: f.name, frequency: f.system?.frequency?.type, ...availability(f), effect: stripHTML(f.system?.effect || f.system?.snippet, 300) })),
     items: (it.item ?? []).filter((i) => (i.system?.quantity ?? 1) > 0).map((i) => ({ id: i.id, name: i.name, quantity: i.system?.quantity ?? 1 })),
   };
 }
