@@ -57,8 +57,54 @@ to the bridge. The other clients only take part as the GM relay (see below).
 | `say` | `token`, `text` | In-character chat line. |
 | `target` | `targets` | Sets targets only. |
 | `ping` | – | Round trip check. |
+| `party` | `trainer` | The trainer's party Pokémon: on field or not, fainted, HP, distance from the trainer. |
+| `sendOut` | `trainer`, `pokemon`, `to: {col,row}`, `force?`, `offTurn?` | Places the Pokémon's token within release range and adds it to combat. |
+| `recall` | `pokemon`, `force?`, `offTurn?` | Removes the token and its combatant, if within recall range of its trainer. |
+| `switch` | `trainer`, `out`, `in` | Recall `out`, send `in` out to the same cell. |
+| `orders` | `token`, `list?` | Sets this token's standing orders (`[]` clears; no `list` shows them). |
 
 Tokens can be given by token id, actor id or name.
+
+## Switching Pokémon
+
+PTR has no send-out or recall of its own, so `sendOut` creates the Pokémon's token and
+`recall` deletes it. Pokémon Assets, when active, animates both. Your GM client makes the change
+after re-checking party membership, ownership and range.
+
+The party is PTR's own: a `Party` folder inside the trainer's folder, else Pokémon whose
+`flags.ptu.party.trainer` is the trainer and that aren't boxed.
+
+PTR keeps the PTU CORE switching rules, so recall range, release range and action cost are GM
+world settings (defaults 8 m, 8 m, "Standard Action"). Set them from the CORE book. The pilot
+doesn't track action economy; it reports the cost.
+
+## Standing orders (reactions and interrupts)
+
+Before ending a turn, the pilot can leave orders: **when** something happens, **do** one command
+(`use`, `move`, `say`, `switch`, `sendOut`, `recall`, `target`). In the order's
+arguments, `$trigger` stands for the triggering token and `$self` for the token that set it.
+`limit` is `"once"` (the default) or `"round"`.
+
+| `when.type` | Fires |
+|---|---|
+| `enemyAdjacent` | An enemy ends a move adjacent. |
+| `enemyLeavesAdjacent` | An adjacent enemy moves away (Attack of Opportunity). |
+| `enemyWithin` `{range}` | An enemy ends a move within `range` m. |
+| `hpBelow` `{percent, who?}` | The token, or `who`, is below `percent` % HP. |
+| `allyFaints` `{who?}` | An ally, or `who`, faints. |
+| `enemySendsOut` | A hostile Pokémon is sent out. |
+| `targeted` `{by?, category?, type?, move?}` | **Interrupt.** Before the roll, the attacker's client pauses for up to 25 s while the order runs. |
+
+Orders only take effect while combat is running and the bridge is connected. They are replaced
+at the start of that token's next turn, and the turn event reports what fired. Each firing also
+posts a `reaction` event.
+
+**Secrecy.** Orders live only in the pilot's browser (memory and `localStorage`), never on
+actor data, which every client receives.
+
+**Interrupts.** The interrupt hook wraps PTR's `PTUMove.use`, which the sheet and token panel
+call. Rolls made any other way skip it. If an interrupt switches out the target, the attack
+continues against the remaining targets; the GM adjudicates the rest.
 
 ## Battle briefs
 
@@ -91,4 +137,6 @@ Tested in play on Foundry V14 with PTR 4.4.3.57. Working: turn wake-up, movement
 capability check, move use with no dialog, effects applied through the GM relay, in-character
 chat, and ending turns.
 
-Not supported yet: trainer actions (recall, send out, items from the bag).
+Added after that test, and not yet tested in play: party, send out, recall and switch; standing orders and interrupts.
+
+Not supported yet: Struggle attacks (PTR builds them at runtime); bag items on others are untested, and PTR doesn't reduce their quantity.

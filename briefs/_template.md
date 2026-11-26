@@ -33,6 +33,16 @@ the actors listed under "Who". Plain language is fine; precise numbers help.
 | <an ally faints> | <…> |
 | <round N> | <…> |
 
+## Standing orders
+<Set at the end of each turn and fire between turns. One line each: when <trigger>, do <action>,
+plus the rule or feature that allows it and any limit (once, or once per round).>
+
+| When | Do | Allowed by |
+|---|---|---|
+| <an adjacent enemy moves away> | <use Bite on it> | <Attack of Opportunity, CORE> |
+| <targeted by a Physical move> | <use Protect> | <Protect is an Interrupt move> |
+| <HP below 25%> | <switch to Gyarados> | <Quick Switch, PTR> |
+
 ## Voice
 <How they talk. Two or three sample lines for openings, hits, and defeat. The pilot posts lines
 in character with `say`. Keep them short; at most one line per turn.>

@@ -15,6 +15,8 @@
  * them (name, types, HP %, stages, conditions, position).
  *
  * Commands (bridge `call <cmd> <json>`): state, actor, move, use, endTurn, say, target, ping.
+ * pilot-switch.js adds party, sendOut, recall, switch; pilot-orders.js adds orders (standing
+ * orders / reactions / interrupts). Both register through the exports below.
  *
  * Writes the pilot can't make itself (damage and effects on actors it doesn't own, advancing a
  * turn it isn't allowed to) go over the module socket to the active GM, who runs the exact PTR
@@ -22,8 +24,8 @@
  * effect pipeline. The GM must be online. World setting "Enable AI pilot" (GM) switches it all off.
  */
 
-const MODULE_ID = "ptr-ai-pilot";
-const SOCKET = `module.${MODULE_ID}`;
+export const MODULE_ID = "ptr-ai-pilot";
+export const SOCKET = `module.${MODULE_ID}`;
 const ACTION_RELAY = "ptre1-ai-pilot-relay";
 const ACTION_RELAY_RESULT = "ptre1-ai-pilot-relay-result";
 const RELAY_TIMEOUT_MS = 20_000;
@@ -44,8 +46,8 @@ const ACTION_TO_CAPABILITY = {
 };
 const STATS = ["atk", "def", "spatk", "spdef", "spd"];
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const lower = (s) => String(s ?? "").trim().toLowerCase();
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export const lower = (s) => String(s ?? "").trim().toLowerCase();
 const stripHTML = (html, max = 400) => {
   const text = String(html ?? "").replace(/<[^>]*>/g, " ").replace(/@\w+\[[^\]]*\]\{([^}]*)\}/g, "$1").replace(/\s+/g, " ").trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -64,12 +66,12 @@ export function isPiloted(actor) {
   return (ownership[game.user.id] ?? 0) >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
 }
 
-function sceneTokens() {
+export function sceneTokens() {
   return canvas?.tokens?.placeables ?? [];
 }
 
 /** Token placeable from a token id, actor id, or (case-insensitive) token/actor name. */
-function findToken(ref) {
+export function findToken(ref) {
   if (!ref) throw new Error("No token given.");
   if (ref?.document?.documentName === "Token") return ref;
   const tokens = sceneTokens();
@@ -99,12 +101,12 @@ function findItem(actor, ref) {
  *  Geometry
  * ------------------------------------------------------------------ */
 
-function cellOf(token) {
+export function cellOf(token) {
   const { i, j } = canvas.grid.getOffset({ x: token.document.x, y: token.document.y });
   return { col: j, row: i, w: token.document.width, h: token.document.height };
 }
 
-function occupiedCells(token) {
+export function occupiedCells(token) {
   const { col, row, w, h } = cellOf(token);
   const cells = [];
   for (let dx = 0; dx < Math.max(1, Math.round(w)); dx++)
@@ -112,12 +114,12 @@ function occupiedCells(token) {
   return cells;
 }
 
-function cellCenter({ i, j }) {
+export function cellCenter({ i, j }) {
   return canvas.grid.getCenterPoint({ i, j });
 }
 
 /** Closest cell-to-cell grid distance between two tokens, in scene units (metres). */
-function distanceBetween(a, b) {
+export function distanceBetween(a, b) {
   let best = Infinity;
   for (const ca of occupiedCells(a))
     for (const cb of occupiedCells(b)) {
@@ -300,8 +302,13 @@ function actorDetail(token) {
  * ------------------------------------------------------------------ */
 
 const relayWaiters = new Map();
+/** Extra GM-side relay handlers: kind -> async ({ args, sender, from }) => data. */
+const RELAY_HANDLERS = new Map();
+export function registerRelay(kind, fn) {
+  RELAY_HANDLERS.set(kind, fn);
+}
 
-async function relay(kind, args) {
+export async function relay(kind, args) {
   if (game.user.isGM) return runRelay({ kind, args, from: game.user.id });
   if (!game.users.activeGM) throw new Error("No GM is online to apply this.");
   const requestId = foundry.utils.randomID();
@@ -365,8 +372,11 @@ async function runRelay({ kind, args, from }) {
       await combat.nextTurn();
       return { round: combat.round, turn: combat.turn };
     }
-    default:
-      throw new Error(`Unknown relay request "${kind}".`);
+    default: {
+      const handler = RELAY_HANDLERS.get(kind);
+      if (!handler) throw new Error(`Unknown relay request "${kind}".`);
+      return handler({ args, sender, from });
+    }
   }
 }
 
@@ -396,11 +406,11 @@ async function onSocket(msg) {
  *  Commands
  * ------------------------------------------------------------------ */
 
-function requirePiloted(token) {
+export function requirePiloted(token) {
   if (!isPiloted(token.actor)) throw new Error(`${token.name} is not one of your actors.`);
 }
 
-function turnCheck(token, offTurn) {
+export function turnCheck(token, offTurn) {
   const current = game.combat?.combatant;
   if (!game.combat?.started || !current) return null;
   if (current.tokenId === token.id) return null;
@@ -432,7 +442,7 @@ async function capture(fn) {
 
 const ctxType = (m) => m.flags?.ptu?.context?.type;
 
-function hpLine(token) {
+export function hpLine(token) {
   const a = token.actor;
   const h = a?.system?.health ?? {};
   return isPiloted(a)
@@ -450,7 +460,7 @@ async function setTargets(tokens) {
   }
 }
 
-const COMMANDS = {
+export const COMMANDS = {
   /** Whole fight: scene, round/turn and every combatant (own ones in full). */
   async state() {
     return buildState();
@@ -625,7 +635,7 @@ let loopId = 0;
 let connectedNow = false;
 let badge = null;
 
-function enabled() {
+export function enabled() {
   return setting("enabled") !== false;
 }
 
@@ -662,7 +672,11 @@ function bridgeFetch(path, init = {}) {
   });
 }
 
-async function postEvent(event) {
+export function bridgeConnected() {
+  return connectedNow;
+}
+
+export async function postEvent(event) {
   if (!connectedNow) return;
   try {
     await bridgeFetch("/foundry/event", { method: "POST", body: JSON.stringify(event) });
@@ -723,6 +737,11 @@ function restartLoop() {
  * ------------------------------------------------------------------ */
 
 let lastAnnounced = null;
+/** Providers of extra turn-event data: (combatant) => object merged into the event. */
+const TURN_EXTRAS = [];
+export function registerTurnExtra(fn) {
+  TURN_EXTRAS.push(fn);
+}
 
 function announceTurn() {
   if (!connectedNow || !enabled()) return;
@@ -732,7 +751,11 @@ function announceTurn() {
   const key = `${combat.id}:${combat.round}:${combat.turn}:${current.id}`;
   if (key === lastAnnounced) return;
   lastAnnounced = key;
-  postEvent({ type: "turn", actor: current.name, token: current.tokenId, round: combat.round, turn: combat.turn, state: buildState() });
+  const extras = {};
+  for (const fn of TURN_EXTRAS) {
+    try { Object.assign(extras, fn(current)); } catch (err) { console.error(`${MODULE_ID} | turn extra failed`, err); }
+  }
+  postEvent({ type: "turn", actor: current.name, token: current.tokenId, round: combat.round, turn: combat.turn, ...extras, state: buildState() });
 }
 
 /* ------------------------------------------------------------------ *

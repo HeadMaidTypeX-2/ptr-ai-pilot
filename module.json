@@ -1,7 +1,7 @@
 {
   "id": "ptr-ai-pilot",
   "title": "PTR AI Pilot",
-  "description": "Lets Claude Code play chosen combatants in a PTR (system id 'ptu') world through a local bridge: reads the fight, moves tokens, uses moves and items through PTR's own roll pipeline, and ends its turns. Damage and effects on actors the pilot doesn't own are applied by the GM's client.",
+  "description": "Lets Claude Code play chosen combatants in a PTR (system id 'ptu') world through a local bridge: reads the fight, moves tokens, uses moves and items through PTR's own roll pipeline, sends out / recalls / switches Pokémon, reacts and interrupts through standing orders, and ends its turns. Damage, effects and token changes it can't make itself are applied by the GM's client.",
   "version": "0.1.0",
   "compatibility": {
     "minimum": "13",
@@ -13,7 +13,9 @@
     }
   ],
   "esmodules": [
-    "scripts/ai-pilot.js"
+    "scripts/ai-pilot.js",
+    "scripts/pilot-switch.js",
+    "scripts/pilot-orders.js"
   ],
   "relationships": {
     "systems": [

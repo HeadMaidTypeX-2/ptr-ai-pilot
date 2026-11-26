@@ -17,13 +17,26 @@ below. Keep it practical: the pilot follows instructions literally.
   them. The pilot refuses moves that are out of range or past their frequency (EOT, Scene,
   Daily).
 - **Use a feature or an owned item.** This exists but hasn't been tested in play yet.
+- **Send out, recall or switch** a trainer's party Pokémon, within the GM's recall and release
+  range.
+- **Leave standing orders** before ending a turn. Each is "when X, do Y" and fires between its
+  turns:
+  - an enemy moves adjacent, within N m, or away (Attack of Opportunity);
+  - HP drops below N %;
+  - an ally faints;
+  - an enemy sends a Pokémon out;
+  - **interrupts**: this token is targeted by a move, optionally filtered by attacker, category
+    (Physical, Special or Status), type, or move name.
+  Y is one action: use a move, move, switch, send out, recall, or say a line.
 - **Say one in-character chat line.**
 - **End its turn.**
 
 **What it can't do (yet)**
-- **Recall or send out a Pokémon**, or use items from a trainer's bag on someone else.
-- **React off-turn.** It only wakes on its own turns, so interrupts, reactions and Attacks of
-  Opportunity have to come from the GM.
+- **Use Struggle attacks.**
+- **Track action economy.** It doesn't count Standard, Shift or Swift actions; the brief must say
+  what a turn may contain, and features like Quick Switch must be named.
+- **React to anything outside the order triggers** above. Off-turn decisions beyond them come from
+  the GM.
 - **Read enemy sheets.** It sees other combatants' name, types, HP %, combat stages, conditions
   and position, not their moves or stats. If it should "know" something about the party, write it
   in the brief.
@@ -39,6 +52,9 @@ below. Keep it practical: the pilot follows instructions literally.
 - **Mark rule sources.** Mark any rule as **PTR** (wiki or source) or **CORE**, and state house
   rules explicitly.
 - **Voice lines:** short, one per turn at most, with a few to choose from per situation.
+- **Standing orders:** for each piloted actor, list the orders it should leave at the end of each
+  turn, written as "when <trigger>, do <action>", with the feature or rule that allows it (e.g.
+  "Emergency Release, 2 AP").
 - **Out of scope:** anything it can't do goes there, with what to do instead ("skip", "end turn",
   "say X").
 
