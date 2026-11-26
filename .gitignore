@@ -3,3 +3,4 @@ bridge/.token
 briefs/*
 !briefs/README.md
 !briefs/_template.md
+!briefs/CHAT-PROMPT.md
