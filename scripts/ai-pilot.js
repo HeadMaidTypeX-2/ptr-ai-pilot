@@ -119,15 +119,40 @@ export function cellCenter({ i, j }) {
   return canvas.grid.getCenterPoint({ i, j });
 }
 
-/** Closest cell-to-cell grid distance between two tokens, in scene units (metres). */
-export function distanceBetween(a, b) {
+/** Closest cell-to-cell grid distance between two cell sets, in scene units (metres). */
+function distanceCells(cellsA, cellsB) {
   let best = Infinity;
-  for (const ca of occupiedCells(a))
-    for (const cb of occupiedCells(b)) {
+  for (const ca of cellsA)
+    for (const cb of cellsB) {
       const d = canvas.grid.measurePath([cellCenter(ca), cellCenter(cb)]).distance;
       if (d < best) best = d;
     }
   return Math.round(best * 100) / 100;
+}
+
+/** Closest cell-to-cell grid distance between two tokens, in scene units (metres). */
+export function distanceBetween(a, b) {
+  return distanceCells(occupiedCells(a), occupiedCells(b));
+}
+
+/**
+ * Adjacent = some occupied cells touch, diagonals included (PTR). Decided by cells, not
+ * metres: a scene whose diagonal rule measures 1.5 m per diagonal would otherwise fail melee.
+ */
+function adjacentCells(cellsA, cellsB) {
+  return cellsA.some((a) => cellsB.some((b) => Math.max(Math.abs(a.i - b.i), Math.abs(a.j - b.j)) <= 1));
+}
+export function isAdjacent(a, b) {
+  return adjacentCells(occupiedCells(a), occupiedCells(b));
+}
+
+/** Cells a token would occupy with its top-left at (col,row). */
+function cellsAt(token, col, row) {
+  const w = Math.max(1, Math.round(token.document.width));
+  const h = Math.max(1, Math.round(token.document.height));
+  const cells = [];
+  for (let dx = 0; dx < w; dx++) for (let dy = 0; dy < h; dy++) cells.push({ i: row + dy, j: col + dx });
+  return cells;
 }
 
 function capabilities(actor) {
@@ -293,9 +318,32 @@ function actorDetail(token) {
     movementAction: token.document.movementAction ?? null,
     moves: (it.move ?? []).map((m) => moveSummary(m, token)),
     abilities: (it.ability ?? []).map((a) => ({ name: a.name, frequency: a.system?.frequency?.type, effect: stripHTML(a.system?.effect || a.system?.snippet, 300) })),
-    features: (it.feat ?? []).map((f) => ({ id: f.id, name: f.name, frequency: f.system?.frequency?.type, ...availability(f), effect: stripHTML(f.system?.effect || f.system?.snippet, 300) })),
-    items: (it.item ?? []).filter((i) => (i.system?.quantity ?? 1) > 0).map((i) => ({ id: i.id, name: i.name, quantity: i.system?.quantity ?? 1 })),
+    features: (it.feat ?? []).map((f) => ({
+      id: f.id, name: f.name, frequency: f.system?.frequency?.type,
+      actionCost: actionCostOf(f), usesLeft: usesLeft(f), ...availability(f),
+      effect: stripHTML(f.system?.effect || f.system?.snippet, 300),
+    })),
+    edges: (it.edge ?? []).map((e) => e.name),
+    items: (it.item ?? []).filter((i) => (i.system?.quantity ?? 1) > 0).map((i) => ({
+      id: i.id, name: i.name, quantity: i.system?.quantity ?? 1,
+      ...(i.system?.category ? { category: i.system.category } : {}),
+      effect: stripHTML(i.system?.effect || i.system?.snippet, 160),
+    })),
+    skills: Object.fromEntries(Object.entries(sys.skills ?? {}).map(([k, s]) => [k, { rank: s.rank ?? null, value: s.value?.total ?? s.value?.value ?? null }])),
+    ...(sys.ap ? { ap: { value: sys.ap.value ?? null, max: sys.ap.max ?? sys.ap.total ?? null } } : {}),
+    otherCapabilities: sys.capabilities ? Object.fromEntries(Object.entries(sys.capabilities).filter(([, v]) => v !== null && v !== "" && typeof v !== "object")) : {},
   };
+}
+
+function actionCostOf(item) {
+  return Object.entries(item.system?.actionCost ?? {}).filter(([, v]) => v).map(([k]) => k);
+}
+
+function usesLeft(item) {
+  const freq = CONFIG.PTU?.data?.frequencies?.[item.system?.frequency?.type];
+  if (!freq?.limited) return null;
+  const max = item.system?.frequency?.max || 1;
+  return Math.max(0, max - (item.flags?.ptu?.used ?? 0));
 }
 
 /* ------------------------------------------------------------------ *
@@ -372,6 +420,38 @@ async function runRelay({ kind, args, from }) {
       if (!actor?.testUserPermission(sender, "OWNER")) throw new Error("The requesting user doesn't own the current combatant.");
       await combat.nextTurn();
       return { round: combat.round, turn: combat.turn };
+    }
+    case "applyHp": {
+      // Unautomated damage/healing (weather strikes, Heal Pulse, Potions, Revive…), through
+      // PTR's own actor.applyDamage so DR/IWR, injuries, fainting and the chat card all apply.
+      const doc = fromUuidSync(args.targetUuid);
+      const actor = doc?.actor;
+      if (!actor) throw new Error("Target token not found.");
+      if (!actor.testUserPermission(sender, "OWNER")) throw new Error("The requesting user doesn't own that actor.");
+      const health = actor.system?.health ?? {};
+      const before = health.value;
+      if (args.setTo !== undefined && args.setTo !== null) {
+        await actor.update({ "system.health.value": Number(args.setTo) });
+      } else {
+        const amount = Math.abs(Number(args.amount ?? (Number(args.ticks) || 0) * (health.tick ?? 0)));
+        if (!amount) throw new Error("Give `amount`, `ticks` or `setTo`.");
+        if (args.heal) {
+          await actor.applyDamage({ damage: -amount, token: doc, effectiveness: 1, skipIWR: true, rollOptions: [] });
+        } else if (args.type) {
+          // A typed effect, not an attack: no Defense (category "Status"), but Weakness /
+          // Resistance / Immunity of that type still apply.
+          const pseudo = { name: args.reason || `${args.type} damage`, system: { type: args.type, category: "Status" } };
+          await actor.applyDamage({ damage: amount, token: doc, item: pseudo, effectiveness: 1, rollOptions: [] });
+        } else {
+          await actor.applyDamage({ damage: amount, token: doc, effectiveness: -1, rollOptions: [] }); // flat
+        }
+      }
+      // Healing above 0 or a revive clears Fainted.
+      if ((args.heal || args.setTo !== undefined || args.removeFainted) && (actor.system?.health?.value ?? 0) > 0) {
+        const fainted = actor.items.filter((i) => i.type === "condition" && (i.slug ?? i.system?.slug) === "fainted").map((i) => i.id);
+        if (fainted.length) await actor.deleteEmbeddedDocuments("Item", fainted);
+      }
+      return { name: doc.name, before, after: actor.system?.health?.value, max: actor.system?.health?.max };
     }
     default: {
       const handler = RELAY_HANDLERS.get(kind);
@@ -520,7 +600,7 @@ export const COMMANDS = {
    * Use a move, feature or item. `targets` are token refs. Rolls with no dialog, then applies
    * damage / effects through the GM exactly as the chat buttons would.
    */
-  async use({ token: ref, item: itemRef, targets = [], force = false, offTurn = false, apply = true }) {
+  async use({ token: ref, item: itemRef, targets = [], force = false, offTurn = false, apply = true, consume = false }) {
     const token = findToken(ref);
     requirePiloted(token);
     const warning = turnCheck(token, offTurn);
@@ -531,11 +611,12 @@ export const COMMANDS = {
     if (!avail.available && !force) throw new Error(`${item.name} is unavailable: ${avail.reason}.`);
 
     const targetTokens = targets.map(findToken);
-    const ranges = targetTokens.map((t) => ({ name: t.name, distance: distanceBetween(token, t) }));
+    const ranges = targetTokens.map((t) => ({ name: t.name, distance: distanceBetween(token, t), adjacent: isAdjacent(token, t) }));
     if (item.type === "move") {
       const { reach, raw } = moveRange(item);
       if (reach && !force) {
-        const far = ranges.filter((r) => r.distance > reach);
+        // Melee (reach 1) is adjacency by cells; ranged reach is metres.
+        const far = ranges.filter((r) => (reach === 1 ? !r.adjacent : r.distance > reach));
         if (far.length) throw new Error(`Out of range (${raw}): ${far.map((r) => `${r.name} at ${r.distance} m`).join(", ")}. Pass force: true to roll anyway.`);
       }
     }
@@ -591,9 +672,66 @@ export const COMMANDS = {
       }
       await sleep(300);
     }
+    // PTR's use() never reduces quantity; the pilot does when told the item is spent.
+    if (consume && item.type === "item") {
+      const q = Number(item.system?.quantity ?? 1);
+      if (q > 1) await item.update({ "system.quantity": q - 1 });
+      else await item.delete();
+      result.consumed = { name: item.name, left: Math.max(0, q - 1) };
+    }
     result.targets = targetTokens.map((t, i) => ({ before: before[i], after: hpLine(t) }));
     result.self = hpLine(token);
     return result;
+  },
+
+  /**
+   * Apply damage or healing that PTR doesn't automate (weather strikes, Heal Pulse, Potions,
+   * Revive). Done by the GM's client through PTR's actor.applyDamage. Only actors this user owns.
+   *   {token, amount}                    flat damage (no Defense, no type)
+   *   {token, ticks: 3, type: "Electric"} typed damage: Weakness/Resistance/Immunity apply
+   *   {token, amount: 20, heal: true}     healing (clears Fainted above 0)
+   *   {token, setTo: 20}                  set HP (e.g. Revive; clears Fainted)
+   */
+  async applyHp({ token: ref, amount, ticks, type, heal = false, setTo, removeFainted = false, reason = "" }) {
+    const token = findToken(ref);
+    if (!token.actor?.testUserPermission(game.user, "OWNER")) throw new Error(`You don't own ${token.name}.`);
+    const out = await relay("applyHp", { targetUuid: token.document.uuid, amount, ticks, type, heal, setTo, removeFainted, reason });
+    await sleep(250);
+    return { ...out, ...(reason ? { reason } : {}) };
+  },
+
+  /**
+   * Before moving: which tokens a move (or plain melee) reaches from a cell. `from` defaults to
+   * the token's current cell. Melee is adjacency by cells; ranged is metres (scene diagonal rule).
+   */
+  async reach({ token: ref, item: itemRef, from }) {
+    const token = findToken(ref);
+    requirePiloted(token);
+    const item = itemRef ? findItem(token.actor, itemRef) : null;
+    if (itemRef && !item) throw new Error(`${token.name} has no move "${itemRef}".`);
+    const { reach, raw } = item ? moveRange(item) : { reach: 1, raw: "Melee" };
+    const origin = from ?? cellOf(token);
+    const mine = cellsAt(token, origin.col, origin.row);
+    const rows = sceneTokens().filter((t) => t !== token && t.actor).map((t) => {
+      const theirs = occupiedCells(t);
+      const distance = distanceCells(mine, theirs);
+      const adjacent = adjacentCells(mine, theirs);
+      const inRange = reach === 1 ? adjacent : reach ? distance <= reach : null;
+      return { name: t.name, token: t.id, side: t.document.disposition === 1 ? "friendly" : t.document.disposition === -1 ? "hostile" : "neutral", distance, adjacent, inRange };
+    }).sort((a, b) => a.distance - b.distance);
+    return { from: origin, move: item?.name ?? "melee", range: raw, reach, targets: rows };
+  },
+
+  /** Skill check, rolled the way the sheet does (PTR skill statistic). */
+  async check({ token: ref, skill, dc }) {
+    const token = findToken(ref);
+    requirePiloted(token);
+    const key = String(skill ?? "").trim();
+    const stat = token.actor.attributes?.skills?.[key] ?? token.actor.attributes?.skills?.[key.toLowerCase()];
+    if (!stat) throw new Error(`${token.name} has no skill "${skill}". Known: ${Object.keys(token.actor.attributes?.skills ?? {}).join(", ")}.`);
+    const roll = await stat.roll({ skipDialog: true });
+    const total = roll?.total ?? null;
+    return { name: token.name, skill: key, total, ...(Number.isFinite(Number(dc)) ? { dc: Number(dc), success: total !== null && total >= Number(dc) } : {}) };
   },
 
   /** End the current piloted combatant's turn. */

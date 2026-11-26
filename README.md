@@ -50,9 +50,9 @@ to the bridge. The other clients only take part as the GM relay (see below).
 | Command | Args | Does |
 |---|---|---|
 | `state` | – | Scene, round/turn and every combatant. Own actors appear in full; others show HP %, types, stages, conditions and position. |
-| `actor` | `token` | One own actor in full: stats, evasion, moves (with availability), abilities, features, items. |
+| `actor` | `token` | One own actor in full: stats, evasion, skill ranks, AP, moves (with availability), abilities, features (action cost, uses left), edges, items. |
 | `move` | `token`, `to: {col,row}` or `path`, `action?`, `force?` | Moves the token, checked against its movement capability. Walls stop it. |
-| `use` | `token`, `item`, `targets: [...]`, `force?`, `offTurn?`, `apply?` | Uses a move or item with no roll dialog, then applies damage and effects. Frequency and range are checked first. |
+| `use` | `token`, `item`, `targets: [...]`, `force?`, `offTurn?`, `apply?`, `consume?` | Uses a move or item with no roll dialog, then applies damage and effects. Frequency and range are checked first. |
 | `endTurn` | – | Advances the tracker if it is a piloted combatant's turn. |
 | `say` | `token`, `text` | In-character chat line. |
 | `target` | `targets` | Sets targets only. |
@@ -62,6 +62,9 @@ to the bridge. The other clients only take part as the GM relay (see below).
 | `recall` | `pokemon`, `force?`, `offTurn?` | Removes the token and its combatant, if within recall range of its trainer. |
 | `switch` | `trainer`, `out`, `in` | Recall `out`, send `in` out to the same cell. |
 | `orders` | `token`, `list?` | Sets this token's standing orders (`[]` clears; no `list` shows them). |
+| `applyHp` | `token`, `amount` or `ticks` (+`type`), `heal?`, `setTo?`, `reason?` | Damage or healing PTR doesn't automate (weather strikes, Heal Pulse, Potions, Revive). Your GM client applies it through PTR's `actor.applyDamage`, so DR, Weakness/Resistance/Immunity (with `type`), Injuries and fainting all apply. Healing above 0 and `setTo` clear Fainted. Only actors the pilot owns. |
+| `reach` | `token`, `item?`, `from?: {col,row}` | Before moving: which tokens a move reaches from a cell. Melee is adjacency by cells (diagonals count), ranged is metres. |
+| `check` | `token`, `skill`, `dc?` | Skill check rolled as the sheet does. |
 | `save` | `token`, `dc?`, `label?` | Rolls a PTR Save Check (the sheet's Save button) and reports pass/fail against `dc` and the actor's tick size. |
 | `gmNote` | `text` | Whispers the GM a note (house-rule triggers, rulings to make). |
 | `struggle` | `token`, `target?`, `reason?` | Whispers the GM to resolve a Struggle Attack (e.g. an Attack of Opportunity). The pilot can't use PTR's runtime Struggle items yet. |
